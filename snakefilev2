@@ -1,0 +1,9 @@
+rule all:
+	input:
+		"output.txt"
+
+rule one:
+	output:
+		"output.txt"
+	shell:
+		"env > {output}"

@@ -4,7 +4,7 @@
 #PBS -N snakemake_pipeline
 #PBS -j oe
 #PBS -m ae
-#PBS -l walltime=4:00:00,mem=20GB,ncpus=10
+#PBS -l walltime=4:00:00,mem=8GB,ncpus=1
 #PBS -l storage=gdata/pq84+scratch/pq84
 #PBS -M jacob.westaway@menzies.edu.au
 
@@ -14,11 +14,12 @@ echo "PBS: Job name is $PBS_JOBNAME"
 
 echo "---------------------------------------"
 echo "Source env modules and paths"
+cd /g/data/pq84/malaria/snakemake_play
 source /g/data/pq84/malaria/snakemake_pipeline/activate_pipeline_env.sh
 
 echo "---------------------------------------"
 echo "Start snakemake pipeline"
-snakemake --cores 100 --jobs 20 
+snakemake --profile config/pbs-submission/ --snakefile Snakefile
 
 echo "---------------------------------------"
 echo "Pipeline finished"
