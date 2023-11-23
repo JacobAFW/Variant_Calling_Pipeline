@@ -8,6 +8,7 @@ fasta_path=config['fasta_path']
 picard_path=config['picard_path']
 gatk_path=config['gatk_path']
 known_indels_path=config['known_indels_path']
+known_sites_path=config['known_sites_path']
 bed_file_path=config['bed_file_path']
 source_dir=config['source_dir']
 # Define input files - defining the samples to be used for the {sample} wildcard
@@ -59,7 +60,7 @@ rule table_for_base_recal:
     input:
         bam="output/bam_recal/{sample}_dupmarked_realigned.bam",
         fasta=fasta_path,
-        indels=known_indels_path,
+        sites=known_sites_path,
         bed=bed_file_path
     output:
         temp("output/bam_recal/{sample}_dupmarked_realigned_recal.table")
@@ -72,7 +73,7 @@ rule table_for_base_recal:
         -R {input.fasta} \
         -I {input.bam} \
         --intervals {input.bed} \
-        -knownSites {input.indels} \
+        -knownSites {input.sites} \
         -o {output}
         """
 
