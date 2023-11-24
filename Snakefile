@@ -11,25 +11,104 @@ known_indels_path=config['known_indels_path']
 known_sites_path=config['known_sites_path']
 bed_file_path=config['bed_file_path']
 source_dir=config['source_dir']
-# Define input files - defining the samples to be used for the {sample} wildcard
 
-SAMPLES1, = glob_wildcards(f'{source_dir}/{{sample}}_1.fastq.gz')
+# Define input files - 
+
+## Defining the samples to be used for the {sample} wildcard
+
+SAMPLES, = glob_wildcards(f'{source_dir}/{{sample}}_1.fastq.gz') 
+
+## Chromosome names for bed files and subsetting jobs
+with open(config['bed_file_path']) as f:
+    CHROMOSOME = f.read().splitlines()
+    CHROMOSOME = [p.split('\t')[0] for p in CHROMOSOME]
 
 # Define final files
 
 rule all:
     input:
-        expand("output/mapped_reads/{sample}.bam", sample = SAMPLES1),
-        expand("output/sorted/{sample}_sorted.bam", sample = SAMPLES1),
-        expand("output/sorted/{sample}_sorted.bam.bai", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked.bam", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_picard_metrics_file.txt", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked_reheader.bam.bai", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked_realigner.intervals", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked_realigned.bam", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_dupmarked_realigned_recal.table", sample = SAMPLES1),
-        expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES1)
+        expand("output/mapped_reads/{sample}.bam", sample = SAMPLES),
+        expand("output/sorted/{sample}_sorted.bam", sample = SAMPLES),
+        expand("output/sorted/{sample}_sorted.bam.bai", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked.bam", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_picard_metrics_file.txt", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked_reheader.bam.bai", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked_realigner.intervals", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked_realigned.bam", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_dupmarked_realigned_recal.table", sample = SAMPLES),
+        expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES),
+        expand("output/calling/{sample}.g.vcf.gz", sample = SAMPLES),
+        "output/calling/GATK_combined.g.vcf.gz",
+        expand("data/chromosomes/{chromosome}.bed", chromosome = CHROMOSOME)
+
+# Define local rules - not run with scheduler
+localrules: all, bed_for_chrom
+
+# Create bed for each chromosome/contig - to be used for joint calling
+
+rule bed_for_chrom:
+    input:
+        bed=bed_file_path
+    output:
+        "data/chromosomes/{chromosome}.bed"
+    run:
+        with open(input.bed) as f:
+            chrom_bed = f.read().splitlines()
+            chrom_bed = [p.split('\t') for p in chrom_bed]
+
+        for i in chrom_bed:
+            content = '\t'.join(i)
+            f = open(output[0], 'w')
+            f.write(content)
+            f.close()
+
+
+# Combine gVCFs
+
+rule combine_gvcfs:
+    input:
+        fasta=fasta_path
+    output:
+        "output/calling/GATK_combined.g.vcf.gz"
+    params:
+        gatk=gatk_path,
+        gvcfs = lambda w: " -V " + " -V ".join(expand("output/calling/{sample}.g.vcf.gz", sample = SAMPLES))
+    shell:
+        """
+        java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
+        -T CombineGVCFs \
+        -R {input.fasta} \
+        {params.gvcfs} \
+        -o {output}
+        """
+
+# Call haplotypes - GATK
+
+rule haplotype_caller:
+    input:
+        bam="output/bam_recal/{sample}_recalibrated.bam",
+        fasta=fasta_path
+    output:
+        "output/calling/{sample}.g.vcf.gz"
+    params:
+        gatk=gatk_path
+    shell:
+        """
+        java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
+        -T HaplotypeCaller \
+        -ERC GVCF \
+        --minPruning 3 \
+        --maxNumHaplotypesInPopulation 200 \
+        --max_alternate_alleles 3 \
+        --variant_index_type LINEAR \
+        --variant_index_parameter 128000 \
+        -contamination 0.0 \
+        -G Standard \
+        -R {input.fasta} \
+        -I {input.bam} \
+        -o {output}
+        """
 
 # Get recalibrated bams
 
@@ -87,7 +166,7 @@ rule indel_realigner:
         bed=bed_file_path,
         targets="output/bam_recal/{sample}_dupmarked_realigner.intervals"
     output:
-        "output/bam_recal/{sample}_dupmarked_realigned.bam"
+       temp("output/bam_recal/{sample}_dupmarked_realigned.bam")
     params:
         gatk=gatk_path
     shell:
@@ -135,8 +214,8 @@ rule update_header_and_index:
     input:
         "output/bam_recal/{sample}_dupmarked.bam"
     output:
-        bam_output="output/bam_recal/{sample}_dupmarked_reheader.bam",
-        bam_index="output/bam_recal/{sample}_dupmarked_reheader.bam.bai"
+        bam_output=temp("output/bam_recal/{sample}_dupmarked_reheader.bam"),
+        bam_index=temp("output/bam_recal/{sample}_dupmarked_reheader.bam.bai")
     params:
         header = lambda w: f"'s,^@RG.*,@RG\\tID:{w.sample}\\tSM:{w.sample}\\tLB:None\\tPL:Illumina,g'"
     shell:

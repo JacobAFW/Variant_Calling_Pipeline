@@ -7,9 +7,8 @@ __default__:
   account: "jw1542"
   queue: "normalbw"
   email: "jacob.westaway@menzies.edu.au"
-  mailon: "ea"
+  mailon: "a"
   jobout: "oe"
-  variable: ""
 
 bwa_map:
   ncpus: 5
@@ -20,3 +19,14 @@ realigner_target_creator:
   ncpus: 5
   mem: "50GB"
   walltime: "24:00:00"
+
+haplotype_caller: 
+  ncpus: 3
+  mem: "24GB"
+  walltime: "48:00:00"
+
+combine_gvcfs: 
+  jobname: "smk-{rule}"
+  ncpus: 3
+  mem: "24GB"
+  walltime: "48:00:00"
