@@ -38,13 +38,35 @@ rule all:
         expand("output/bam_recal/{sample}_dupmarked_realigned.bam", sample = SAMPLES),
         expand("output/bam_recal/{sample}_dupmarked_realigned_recal.table", sample = SAMPLES),
         expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES),
-        expand("output/calling/{sample}.g.vcf.gz", sample = SAMPLES),
-        "output/calling/GATK_combined.g.vcf.gz",
-        expand("data/chromosomes/{chromosome}.bed", chromosome = CHROMOSOME)
+        expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES),
+        "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz",
+        expand("data/chromosomes/{chromosome}.bed", chromosome = CHROMOSOME),
+        expand("output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME)
 
 # Define local rules - not run with scheduler
 localrules: all, bed_for_chrom
 
+# Joint-call variants
+
+rule joint_genotyping:
+    input:
+        vcf="output/calling/GATK_combined.g.vcf.gz",
+        fasta=fasta_path,
+        bed="data/chromosomes/{chromosome}.bed"
+    output:
+        "output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz"
+    params:
+        gatk=gatk_path
+    shell:
+        """
+        java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
+        -T GenotypeGVCFs \
+        -nt 3 \
+        -R {input.fasta} \
+        -L {input.bed} \
+        -V {input.vcf} \
+        -o {output}
+        """
 # Create bed for each chromosome/contig - to be used for joint calling
 
 rule bed_for_chrom:
@@ -70,10 +92,10 @@ rule combine_gvcfs:
     input:
         fasta=fasta_path
     output:
-        "output/calling/GATK_combined.g.vcf.gz"
+        "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz"
     params:
         gatk=gatk_path,
-        gvcfs = lambda w: " -V " + " -V ".join(expand("output/calling/{sample}.g.vcf.gz", sample = SAMPLES))
+        gvcfs = lambda w: " -V " + " -V ".join(expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES))
     shell:
         """
         java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
@@ -90,7 +112,7 @@ rule haplotype_caller:
         bam="output/bam_recal/{sample}_recalibrated.bam",
         fasta=fasta_path
     output:
-        "output/calling/{sample}.g.vcf.gz"
+        "output/calling/gatk/gvcf/{sample}.g.vcf.gz"
     params:
         gatk=gatk_path
     shell:

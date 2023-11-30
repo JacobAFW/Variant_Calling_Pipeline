@@ -30,3 +30,9 @@ combine_gvcfs:
   ncpus: 3
   mem: "24GB"
   walltime: "48:00:00"
+
+joint_genotyping: 
+  jobname: "smk-{rule}"
+  ncpus: 3
+  mem: "24GB"
+  walltime: "48:00:00"
