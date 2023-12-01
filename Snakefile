@@ -50,7 +50,7 @@ localrules: all, bed_for_chrom
 
 rule joint_genotyping:
     input:
-        vcf="output/calling/GATK_combined.g.vcf.gz",
+        vcf="output/calling/gatk/gvcf/GATK_combined.g.vcf.gz",
         fasta=fasta_path,
         bed="data/chromosomes/{chromosome}.bed"
     output:
