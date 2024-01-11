@@ -36,3 +36,21 @@ joint_genotyping:
   ncpus: 3
   mem: "24GB"
   walltime: "48:00:00"
+
+bcftools_caller: 
+  jobname: "smk-{rule}"
+  ncpus: 2
+  mem: "16GB"
+  walltime: "48:00:00"
+
+consensus_of_vcfs:
+  jobname: "smk-{rule}"
+  ncpus: 2
+  mem: "16GB"
+  walltime: "48:00:00"
+
+concat_vcfs:
+  jobname: "smk-{rule}"
+  ncpus: 2
+  mem: "16GB"
+  walltime: "12:00:00"

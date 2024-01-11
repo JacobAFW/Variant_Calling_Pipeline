@@ -19,9 +19,25 @@ source_dir=config['source_dir']
 SAMPLES, = glob_wildcards(f'{source_dir}/{{sample}}_1.fastq.gz') 
 
 ## Chromosome names for bed files and subsetting jobs
+
 with open(config['bed_file_path']) as f:
     CHROMOSOME = f.read().splitlines()
     CHROMOSOME = [p.split('\t')[0] for p in CHROMOSOME]
+
+# Create bed for each chromosome/contig - to be used for sub-setting jobs (eg joint calling)
+
+with open(config['bed_file_path']) as f:
+    chrom_bed = f.read().splitlines()
+    chrom_bed = [p.split('\t') for p in chrom_bed]
+
+for i in chrom_bed:
+    content = '\t'.join(i)
+    file_name = i[0]
+    file_path = 'data/chromosomes/' + file_name + '.bed'
+    f = open(file_path, 'w') # amend this line - how to amend bed file path and use chrom as file name
+    f.write(content)
+
+f.close()
 
 # Define final files
 
@@ -40,11 +56,80 @@ rule all:
         expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES),
         expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES),
         "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz",
-        expand("data/chromosomes/{chromosome}.bed", chromosome = CHROMOSOME),
-        expand("output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME)
+        expand("output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME), 
+        expand("output/calling/bcftools/input_bam_files.list"),
+        expand("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME),
+        expand("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi", chromosome = CHROMOSOME),
+        expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME),
+        expand("output/calling/consensus/{chromosome}_consensus.vcf.gz.tbi", chromosome = CHROMOSOME),
+        expand("output/calling/consensus/{chromosome}.txt", chromosome = CHROMOSOME),
+        "output/calling/consensus/Consensus.vcf.gz",
+        "output/calling/consensus/Consensus.vcf.gz.tbi"
 
 # Define local rules - not run with scheduler
-localrules: all, bed_for_chrom
+localrules: all, bam_input_list
+
+# Concatenate chromosome-based consensus VCFs 
+rule concat_vcfs:
+    params:
+        vcf = lambda w: " ".join(expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME))
+    output:
+        vcf="output/calling/consensus/Consensus.vcf.gz",
+        tbi="output/calling/consensus/Consensus.vcf.gz.tbi"
+    shell:
+        """
+        bcftools concat -o {output.vcf} {params.vcf}
+        bcftools index -t -o {output.tbi} {output.vcf}
+        """
+
+# Take a consenus of GATK and bcftools
+rule consensus_of_vcfs:
+    input:
+        bcftools="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
+        gatk="output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz"
+    output:
+        txt="output/calling/consensus/{chromosome}.txt",
+        vcf="output/calling/consensus/{chromosome}_consensus.vcf.gz",
+        tbi="output/calling/consensus/{chromosome}_consensus.vcf.gz.tbi"
+    params:
+        header = lambda w: f"'%CHROM\\t%POS\\n'"
+    shell:
+        """
+        bcftools query -f {params.header} {input.bcftools} > {output.txt}
+        bcftools filter -R {output.txt} -o {output.vcf} {input.gatk}
+        bcftools index -t -o {output.tbi} {output.vcf}
+        """
+
+# Run bcftools for each chromosome
+rule bcftools_caller:
+    input:
+        input_bam_files="output/calling/bcftools/input_bam_files.list",
+        fasta=fasta_path
+    output:
+        vcf="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
+        tbi="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi"
+    shell:
+        """
+        bcftools mpileup --threads 2 -f {input.fasta} -b {input.input_bam_files} | bcftools call --threads 2 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o {output.vcf}
+        bcftools index --threads 2 -t -o {output.tbi} {output.vcf}
+        """
+
+# Create input list of bam files for bcftools
+
+rule bam_input_list:
+    output:
+        temp("output/calling/bcftools/input_bam_files.list")
+    run:
+        import glob
+
+        bam_list = glob.glob('output/bam_recal/*_recalibrated.bam')
+        #bam_list = [sub.replace('output/bam_recal/', '') for sub in bam_list] 
+
+        file = open('output/calling/bcftools/input_bam_files.list', 'w')
+        for item in bam_list:
+            file.write(item+"\n")
+
+        file.close()
 
 # Joint-call variants
 
@@ -67,25 +152,7 @@ rule joint_genotyping:
         -V {input.vcf} \
         -o {output}
         """
-# Create bed for each chromosome/contig - to be used for joint calling
-
-rule bed_for_chrom:
-    input:
-        bed=bed_file_path
-    output:
-        "data/chromosomes/{chromosome}.bed"
-    run:
-        with open(input.bed) as f:
-            chrom_bed = f.read().splitlines()
-            chrom_bed = [p.split('\t') for p in chrom_bed]
-
-        for i in chrom_bed:
-            content = '\t'.join(i)
-            f = open(output[0], 'w')
-            f.write(content)
-            f.close()
-
-
+            
 # Combine gVCFs
 
 rule combine_gvcfs:
