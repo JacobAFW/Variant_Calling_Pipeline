@@ -43,6 +43,8 @@ f.close()
 
 rule all:
     input:
+        f"{fasta_path}.fai",
+        f"{fasta_path}.dict",
         expand("output/mapped_reads/{sample}.bam", sample = SAMPLES),
         expand("output/sorted/{sample}_sorted.bam", sample = SAMPLES),
         expand("output/sorted/{sample}_sorted.bam.bai", sample = SAMPLES),
@@ -67,7 +69,8 @@ rule all:
         "output/calling/consensus/Consensus.vcf.gz.tbi"
 
 # Define local rules - not run with scheduler
-localrules: all, bam_input_list
+localrules: 
+    all, bam_input_list, index_ref
 
 # Concatenate chromosome-based consensus VCFs 
 rule concat_vcfs:
@@ -375,3 +378,19 @@ rule bwa_map:
         header = lambda w: f"@RG\\\\tID:{w.sample}\\\\tPL:ILLUMINA"
     shell:
          "bwa mem -t {threads} -M -R {params.header} {input} | samtools view -u -S - | samtools sort -n -o {output}"
+
+# Index reference genome
+
+rule index_ref:
+    input:
+        fasta_path
+    output:
+        index=f"{fasta_path}.fai",
+        dictionary=f"{fasta_path}.dict"
+    params:
+        picard_path
+    shell:
+        """
+        samtools faidx -o {output.index} {input}
+        java -jar {params} CreateSequenceDictionary R={input} O={output.dictionary}
+        """
