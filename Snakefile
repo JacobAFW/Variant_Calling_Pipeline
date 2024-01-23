@@ -71,6 +71,8 @@ localrules: all, bam_input_list
 
 # Concatenate chromosome-based consensus VCFs 
 rule concat_vcfs:
+    input:
+        expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME)
     params:
         vcf = lambda w: " ".join(expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME))
     output:
@@ -104,7 +106,8 @@ rule consensus_of_vcfs:
 rule bcftools_caller:
     input:
         input_bam_files="output/calling/bcftools/input_bam_files.list",
-        fasta=fasta_path
+        fasta=fasta_path,
+        bam=expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES)
     output:
         vcf="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
         tbi="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi"
@@ -117,12 +120,14 @@ rule bcftools_caller:
 # Create input list of bam files for bcftools
 
 rule bam_input_list:
+    input:
+        bam=expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES)
     output:
         temp("output/calling/bcftools/input_bam_files.list")
     run:
         import glob
 
-        bam_list = glob.glob('output/bam_recal/*_recalibrated.bam')
+        bam_list = glob.glob('output/bam_recal/*_dupmarked_reheader.bam')
         #bam_list = [sub.replace('output/bam_recal/', '') for sub in bam_list] 
 
         file = open('output/calling/bcftools/input_bam_files.list', 'w')
@@ -157,7 +162,8 @@ rule joint_genotyping:
 
 rule combine_gvcfs:
     input:
-        fasta=fasta_path
+        fasta=fasta_path,
+        gvcf=expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES)
     output:
         "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz"
     params:
