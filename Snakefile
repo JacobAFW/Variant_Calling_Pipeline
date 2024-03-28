@@ -110,13 +110,13 @@ rule bcftools_caller:
     input:
         input_bam_files="output/calling/bcftools/input_bam_files.list",
         fasta=fasta_path,
-        bam=expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES)
+        bed="data/chromosomes/{chromosome}.bed"
     output:
         vcf="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
         tbi="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi"
     shell:
         """
-        bcftools mpileup --threads 2 -f {input.fasta} -b {input.input_bam_files} | bcftools call --threads 2 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o {output.vcf}
+        bcftools mpileup --threads 2 -f {input.fasta} -b {input.input_bam_files} -R {input.bed} | bcftools call --threads 2 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o {output.vcf}
         bcftools index --threads 2 -t -o {output.tbi} {output.vcf}
         """
 
@@ -124,13 +124,13 @@ rule bcftools_caller:
 
 rule bam_input_list:
     input:
-        bam=expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES)
+        bam=expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES)
     output:
         temp("output/calling/bcftools/input_bam_files.list")
     run:
         import glob
 
-        bam_list = glob.glob('output/bam_recal/*_dupmarked_reheader.bam')
+        bam_list = glob.glob('output/bam_recal/*_recalibrated.bam')
         #bam_list = [sub.replace('output/bam_recal/', '') for sub in bam_list] 
 
         file = open('output/calling/bcftools/input_bam_files.list', 'w')
@@ -347,22 +347,19 @@ rule mark_duplicates:
         
 # Sort BAM for recalibration & index
 
-rule index_sorted_bam: 
-    input: 
-        "output/sorted/{sample}_sorted.bam"
-    output:
-        temp("output/sorted/{sample}_sorted.bam.bai") 
-    shell:
-        "samtools index {input}"
-
 rule samtools_sort:
     threads: 5
     input: 
         "output/mapped_reads/{sample}.bam"
     output:
-        temp("output/sorted/{sample}_sorted.bam")
+        bam_output=temp("output/sorted/{sample}_sorted.bam"),
+        bam_index=temp("output/sorted/{sample}_sorted.bam.bai") 
     shell:
-        "samtools sort -@ {threads} {input} > {output}"
+        """
+        samtools sort -@ {threads} {input} > {output.bam_output}
+
+        samtools index {output.bam_output}
+        """
 
 # Map reads 
 
