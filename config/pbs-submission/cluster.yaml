@@ -15,11 +15,6 @@ bwa_map:
   mem: "50GB"
   walltime: "24:00:00"
 
-mark_duplicates:
-  ncpus: 5
-  mem: "50GB"
-  walltime: "24:00:00"
-
 realigner_target_creator: 
   ncpus: 5
   mem: "50GB"
@@ -43,6 +38,12 @@ joint_genotyping:
   walltime: "48:00:00"
 
 bcftools_caller: 
+  jobname: "smk-{rule}"
+  ncpus: 2
+  mem: "16GB"
+  walltime: "48:00:00"
+
+concat_bcftools: 
   jobname: "smk-{rule}"
   ncpus: 2
   mem: "16GB"
