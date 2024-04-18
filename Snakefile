@@ -1,8 +1,10 @@
 # Snakefile 
-
 # Prerequisites (on Gadi): source /g/data/pq84/malaria/snakemake_pipeline/snakemake_setup.sh
 
-# Define paths for ref genomes using config file
+
+################################################ Define paths using config file #########################################################################
+
+
 configfile: "config/config.yaml"
 fasta_path=config['fasta_path']
 picard_path=config['picard_path']
@@ -12,65 +14,73 @@ known_sites_path=config['known_sites_path']
 bed_file_path=config['bed_file_path']
 source_dir=config['source_dir']
 
-# Define input files - 
+
+################################################ Set up: define input files, wildcards, etc. #########################################################################
+
+
+import pandas as pd
+import math
 
 ## Defining the samples to be used for the {sample} wildcard
-
 SAMPLES, = glob_wildcards(f'{source_dir}/{{sample}}_1.fastq.gz') 
 
 ## Chromosome names for bed files and subsetting jobs
-
 with open(config['bed_file_path']) as f:
     CHROMOSOME = f.read().splitlines()
     CHROMOSOME = [p.split('\t')[0] for p in CHROMOSOME]
-
-# Create bed for each chromosome/contig - to be used for sub-setting jobs (eg joint calling)
+## Create bed for each chromosome/contig - to be used for sub-setting jobs (eg joint calling)
 
 with open(config['bed_file_path']) as f:
     chrom_bed = f.read().splitlines()
     chrom_bed = [p.split('\t') for p in chrom_bed]
+chrom_bed_df = pd.DataFrame(chrom_bed, columns = ("chrom", "start", "end"))
+chrom_bed_df = chrom_bed_df.astype({'start': 'int32', 'end': 'int32'})
+chrom_bed_df_small = chrom_bed_df[chrom_bed_df['end'] < 100000]
+chrom_bed_df = chrom_bed_df[chrom_bed_df['end'] > 100000]
 
-for i in chrom_bed:
-    content = '\t'.join(i)
-    file_name = i[0]
-    file_path = 'data/chromosomes/' + file_name + '.bed'
-    f = open(file_path, 'w') # amend this line - how to amend bed file path and use chrom as file name
-    f.write(content)
+## End columns
+for i in range(1, 11):
+    col_name = 'seg_end' + str(i)
+    chrom_bed_df[col_name] = chrom_bed_df.apply(lambda x: math.floor(x['end']/10 * i), axis=1, result_type = 'expand')
 
-f.close()
+## Start columns
+columns = [col for col in chrom_bed_df if 'seg_end' in col]
+for col in columns:
+    col_str = re.sub("end.*", "start", col)
+    col_num = col.replace("seg_end", "")
+    col_num = int(col_num) + 1
+    col_name = col_str + str(col_num)
+    chrom_bed_df[col_name] = chrom_bed_df.apply(lambda x: x[col] + 1, axis = 1, result_type = 'expand')
 
-# Define final files
+# Wrangle into appropriate format and shift start position to 1
+chrom_bed_df['start'] = chrom_bed_df.apply(lambda x: x['start'] + 1, axis = 1)
+chrom_bed_df_small['start'] = chrom_bed_df_small.apply(lambda x: x['start'] + 1, axis = 1)
+
+chrom_bed_df = chrom_bed_df.rename(columns={'start': 'seg_start1'}).drop(['end', 'seg_start11'], axis = 1)
+chrom_bed_df = pd.wide_to_long(chrom_bed_df, stubnames = ['seg_end', 'seg_start'], i = 'chrom', j = 'segment').reset_index(level = ['chrom']) # seg_end tells the fucntion to use the end of this as the new row values for j (segment)
+
+chrom_bed_df_small = chrom_bed_df_small.rename(columns = {'start': 'seg_start', 'end': 'seg_end'})
+chrom_bed_df = pd.concat([chrom_bed_df, chrom_bed_df_small])
+
+# Create numpy arrays
+CHROMOSOME_INTERVALS = chrom_bed_df['chrom'] + ':' + chrom_bed_df['seg_start'].astype(str) + '-' + chrom_bed_df['seg_end'].astype(str)
+CHROMOSOME_INTERVALS = CHROMOSOME_INTERVALS.to_numpy()
+
+
+################################################## Define final files #######################################################################
+
 
 rule all:
     input:
-        f"{fasta_path}.fai",
-        f"{fasta_path}.dict",
-        expand("output/mapped_reads/{sample}.bam", sample = SAMPLES),
-        expand("output/sorted/{sample}_sorted.bam", sample = SAMPLES),
-        expand("output/sorted/{sample}_sorted.bam.bai", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked.bam", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_picard_metrics_file.txt", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked_reheader.bam", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked_reheader.bam.bai", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked_realigner.intervals", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked_realigned.bam", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_dupmarked_realigned_recal.table", sample = SAMPLES),
-        expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES),
-        expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES),
-        "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz",
-        expand("output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME), 
-        expand("output/calling/bcftools/input_bam_files.list"),
-        expand("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz", chromosome = CHROMOSOME),
-        expand("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi", chromosome = CHROMOSOME),
-        expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME),
-        expand("output/calling/consensus/{chromosome}_consensus.vcf.gz.tbi", chromosome = CHROMOSOME),
-        expand("output/calling/consensus/{chromosome}.txt", chromosome = CHROMOSOME),
-        "output/calling/consensus/Consensus.vcf.gz",
-        "output/calling/consensus/Consensus.vcf.gz.tbi"
+        "output/calling/consensus/Consensus.vcf.gz"
+        #expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME)
+
+
+###################################################### Rules ##############################################################################
+
 
 # Define local rules - not run with scheduler
-localrules: 
-    all, bam_input_list, index_ref
+localrules: all, bam_input_list
 
 # Concatenate chromosome-based consensus VCFs 
 rule concat_vcfs:
@@ -83,7 +93,7 @@ rule concat_vcfs:
         tbi="output/calling/consensus/Consensus.vcf.gz.tbi"
     shell:
         """
-        bcftools concat -o {output.vcf} {params.vcf}
+        bcftools concat -o {output.vcf} {input}
         bcftools index -t -o {output.tbi} {output.vcf}
         """
 
@@ -93,9 +103,9 @@ rule consensus_of_vcfs:
         bcftools="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
         gatk="output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz"
     output:
-        txt="output/calling/consensus/{chromosome}.txt",
-        vcf="output/calling/consensus/{chromosome}_consensus.vcf.gz",
-        tbi="output/calling/consensus/{chromosome}_consensus.vcf.gz.tbi"
+        txt=temp("output/calling/consensus/{chromosome}.txt"),
+        vcf=temp("output/calling/consensus/{chromosome}_consensus.vcf.gz"),
+        tbi=temp("output/calling/consensus/{chromosome}_consensus.vcf.gz.tbi")
     params:
         header = lambda w: f"'%CHROM\\t%POS\\n'"
     shell:
@@ -105,33 +115,50 @@ rule consensus_of_vcfs:
         bcftools index -t -o {output.tbi} {output.vcf}
         """
 
-# Run bcftools for each chromosome
+# Concatenate chromosome-based consensus VCFs 
+def get_intervals_by_chromosome(wildcards):
+    return [f"output/calling/bcftools/intervals/bcftools_genotyped_intervals_{intervals}.vcf.gz"
+            for intervals in CHROMOSOME_INTERVALS if intervals.startswith(wildcards.chromosome)]
+
+rule concat_bcftools:
+    input:
+        get_intervals_by_chromosome
+    output:
+        vcf=temp("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz"),
+        tbi=temp("output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi")
+    params:
+        interval_list=lambda w, input: " ".join(input)
+    shell:
+        """
+        bcftools concat -o {output.vcf} {params.interval_list}
+        bcftools index -t -o {output.tbi} {output.vcf}
+        """
+
+# Run bcftools for each chromosome interval
 rule bcftools_caller:
     input:
         input_bam_files="output/calling/bcftools/input_bam_files.list",
-        fasta=fasta_path,
-        bed="data/chromosomes/{chromosome}.bed"
+        fasta=fasta_path
     output:
-        vcf="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz",
-        tbi="output/calling/bcftools/bcftools_genotyped_{chromosome}.vcf.gz.tbi"
+        vcf="output/calling/bcftools/intervals/bcftools_genotyped_intervals_{intervals}.vcf.gz",
+        tbi="output/calling/bcftools/intervals/bcftools_genotyped_intervals_{intervals}.vcf.gz.tbi"
+    params:
+        bed=lambda w: w.intervals
     shell:
         """
-        bcftools mpileup --threads 2 -f {input.fasta} -b {input.input_bam_files} -R {input.bed} | bcftools call --threads 2 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o {output.vcf}
+        bcftools mpileup --threads 2 -f {input.fasta} -b {input.input_bam_files} -r {params.bed} | bcftools call --threads 2 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o {output.vcf}
         bcftools index --threads 2 -t -o {output.tbi} {output.vcf}
         """
-
+    
 # Create input list of bam files for bcftools
 
 rule bam_input_list:
-    input:
-        bam=expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES)
     output:
         temp("output/calling/bcftools/input_bam_files.list")
     run:
         import glob
 
         bam_list = glob.glob('output/bam_recal/*_recalibrated.bam')
-        #bam_list = [sub.replace('output/bam_recal/', '') for sub in bam_list] 
 
         file = open('output/calling/bcftools/input_bam_files.list', 'w')
         for item in bam_list:
@@ -144,34 +171,34 @@ rule bam_input_list:
 rule joint_genotyping:
     input:
         vcf="output/calling/gatk/gvcf/GATK_combined.g.vcf.gz",
-        fasta=fasta_path,
-        bed="data/chromosomes/{chromosome}.bed"
+        fasta=fasta_path
     output:
         "output/calling/gatk/joint/gatk_genotyped_{chromosome}.vcf.gz"
     params:
-        gatk=gatk_path
+        gatk=gatk_path,
+        bed=lambda w: w.chromosome
     shell:
         """
         java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
         -T GenotypeGVCFs \
         -nt 3 \
         -R {input.fasta} \
-        -L {input.bed} \
+        -L {params.bed} \
         -V {input.vcf} \
         -o {output}
         """
-            
+
 # Combine gVCFs
 
 rule combine_gvcfs:
     input:
         fasta=fasta_path,
-        gvcf=expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES)
+        vcf=expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES)
     output:
-        "output/calling/gatk/gvcf/GATK_combined.g.vcf.gz"
+        temp("output/calling/gatk/gvcf/GATK_combined.g.vcf.gz")
     params:
         gatk=gatk_path,
-        gvcfs = lambda w: " -V " + " -V ".join(expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES))
+        gvcfs=lambda w: " -V " + " -V ".join(expand("output/calling/gatk/gvcf/{sample}.g.vcf.gz", sample = SAMPLES))
     shell:
         """
         java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.gatk} \
@@ -315,7 +342,7 @@ rule update_header_and_index:
         bam_output=temp("output/bam_recal/{sample}_dupmarked_reheader.bam"),
         bam_index=temp("output/bam_recal/{sample}_dupmarked_reheader.bam.bai")
     params:
-        header = lambda w: f"'s,^@RG.*,@RG\\tID:{w.sample}\\tSM:{w.sample}\\tLB:None\\tPL:Illumina,g'"
+        header=lambda w: f"'s,^@RG.*,@RG\\tID:{w.sample}\\tSM:{w.sample}\\tLB:None\\tPL:Illumina,g'"
     shell:
         """
         samtools view -H {input} | \
@@ -347,19 +374,22 @@ rule mark_duplicates:
         
 # Sort BAM for recalibration & index
 
+rule index_sorted_bam: 
+    input: 
+        "output/sorted/{sample}_sorted.bam"
+    output:
+        temp("output/sorted/{sample}_sorted.bam.bai") 
+    shell:
+        "samtools index {input}"
+
 rule samtools_sort:
     threads: 5
     input: 
         "output/mapped_reads/{sample}.bam"
     output:
-        bam_output=temp("output/sorted/{sample}_sorted.bam"),
-        bam_index=temp("output/sorted/{sample}_sorted.bam.bai") 
+        temp("output/sorted/{sample}_sorted.bam")
     shell:
-        """
-        samtools sort -@ {threads} {input} > {output.bam_output}
-
-        samtools index {output.bam_output}
-        """
+        "samtools sort -@ {threads} {input} > {output}"
 
 # Map reads 
 
@@ -372,22 +402,6 @@ rule bwa_map:
     output:
         "output/mapped_reads/{sample}.bam"
     params:
-        header = lambda w: f"@RG\\\\tID:{w.sample}\\\\tPL:ILLUMINA"
+        header=lambda w: f"@RG\\\\tID:{w.sample}\\\\tPL:ILLUMINA"
     shell:
          "bwa mem -t {threads} -M -R {params.header} {input} | samtools view -u -S - | samtools sort -n -o {output}"
-
-# Index reference genome
-
-rule index_ref:
-    input:
-        fasta_path
-    output:
-        index=f"{fasta_path}.fai",
-        dictionary=f"{fasta_path}.dict"
-    params:
-        picard_path
-    shell:
-        """
-        samtools faidx -o {output.index} {input}
-        java -jar {params} CreateSequenceDictionary R={input} O={output.dictionary}
-        """
