@@ -33,6 +33,7 @@ with open(config['bed_file_path']) as f:
 with open(config['bed_file_path']) as f:
     chrom_bed = f.read().splitlines()
     chrom_bed = [p.split('\t') for p in chrom_bed]
+    
 chrom_bed_df = pd.DataFrame(chrom_bed, columns = ("chrom", "start", "end"))
 chrom_bed_df = chrom_bed_df.astype({'start': 'int32', 'end': 'int32'})
 chrom_bed_df_small = chrom_bed_df[chrom_bed_df['end'] < 100000]
