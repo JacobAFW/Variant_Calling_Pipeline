@@ -73,7 +73,6 @@ CHROMOSOME_INTERVALS = CHROMOSOME_INTERVALS.to_numpy()
 rule all:
     input:
         "output/calling/consensus/Consensus.vcf.gz"
-        #expand("output/calling/consensus/{chromosome}_consensus.vcf.gz", chromosome = CHROMOSOME)
 
 
 ###################################################### Rules ##############################################################################
@@ -137,6 +136,7 @@ rule concat_bcftools:
 # Run bcftools for each chromosome interval
 rule bcftools_caller:
     input:
+        bam=expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES),
         input_bam_files="output/calling/bcftools/input_bam_files.list",
         fasta=fasta_path
     output:
@@ -153,6 +153,8 @@ rule bcftools_caller:
 # Create input list of bam files for bcftools
 
 rule bam_input_list:
+    input:
+        expand("output/bam_recal/{sample}_recalibrated.bam", sample = SAMPLES)
     output:
         temp("output/calling/bcftools/input_bam_files.list")
     run:
