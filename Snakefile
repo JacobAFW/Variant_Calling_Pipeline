@@ -20,6 +20,7 @@ source_dir=config['source_dir']
 
 import pandas as pd
 import math
+import re
 
 ## Defining the samples to be used for the {sample} wildcard
 SAMPLES, = glob_wildcards(f'{source_dir}/{{sample}}_1.fastq.gz') 
@@ -118,7 +119,7 @@ rule consensus_of_vcfs:
 # Concatenate chromosome-based consensus VCFs 
 def get_intervals_by_chromosome(wildcards):
     return [f"output/calling/bcftools/intervals/bcftools_genotyped_intervals_{intervals}.vcf.gz"
-            for intervals in CHROMOSOME_INTERVALS if intervals.startswith(wildcards.chromosome)]
+            for intervals in CHROMOSOME_INTERVALS if intervals.startswith(wildcards.chromosome+':')]
 
 rule concat_bcftools:
     input:
@@ -368,7 +369,7 @@ rule mark_duplicates:
         picard=picard_path
     shell:
         """
-        java -Djava.iodir=1000m -jar {params.picard} \
+        java -Djava.iodir=1000m -Xms3200m -Xmx3600m -jar {params.picard} \
         MarkDuplicates AS=TRUE VALIDATION_STRINGENCY=LENIENT \
         I={input.bam} \
         O={output.dup_marked} \

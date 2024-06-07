@@ -19,7 +19,7 @@ source /g/data/pq84/malaria/snakemake_pipeline/activate_pipeline_env.sh
 
 echo "---------------------------------------"
 echo "Start snakemake pipeline"
-snakemake --profile config/pbs-submission/ --snakefile Snakefile
+snakemake --profile config/pbs-submission/ --keep-going --snakefile Snakefile
 
 echo "---------------------------------------"
 echo "Pipeline finished"
